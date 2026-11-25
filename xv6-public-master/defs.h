@@ -65,6 +65,8 @@ void            ioapicinit(void);
 
 // kalloc.c
 char*           kalloc(void);
+void            incref(uint);
+int             getref(uint);
 void            kfree(char*);
 void            kinit1(void*, void*);
 void            kinit2(void*, void*);
@@ -180,9 +182,11 @@ int             deallocuvm(pde_t*, uint, uint);
 void            freevm(pde_t*);
 void            inituvm(pde_t*, char*, uint);
 int             loaduvm(pde_t*, char*, struct inode*, uint, uint);
+int             pagefault(uint);
 pde_t*          copyuvm(pde_t*, uint);
 void            switchuvm(struct proc*);
 void            switchkvm(void);
+pde_t*          walkpgdir(pde_t*, const void*, int);
 int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
 

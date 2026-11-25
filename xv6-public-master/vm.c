@@ -32,7 +32,7 @@ seginit(void)
 // Return the address of the PTE in page table pgdir
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page table pages.
-static pte_t *
+pte_t *
 walkpgdir(pde_t *pgdir, const void *va, int alloc)
 {
   pde_t *pde;
@@ -310,6 +310,40 @@ clearpteu(pde_t *pgdir, char *uva)
   *pte &= ~PTE_U;
 }
 
+static int
+cow(pte_t *pte)
+{
+  uint pa = PTE_ADDR(*pte);
+  uint flags = PTE_FLAGS(*pte);
+  char *mem;
+
+  if(getref(pa) == 1){
+    *pte = (*pte | PTE_W) & ~PTE_COW;
+  } else {
+    if((mem = kalloc()) == 0)
+      return -1;
+    memmove(mem, (char*)P2V(pa), PGSIZE);
+    *pte = V2P(mem) | ((flags | PTE_W) & ~PTE_COW);
+    kfree((char*)P2V(pa));
+  }
+  lcr3(V2P(myproc()->pgdir));
+  return 0;
+}
+
+int
+pagefault(uint va)
+{
+  struct proc *p = myproc();
+  pte_t *pte;
+
+  if(p == 0 || va >= p->sz)
+    return -1;
+  pte = walkpgdir(p->pgdir, (void*)va, 0);
+  if(pte == 0 || !(*pte & PTE_P) || !(*pte & PTE_U) || !(*pte & PTE_COW))
+    return -1;
+  return cow(pte);
+}
+
 // Given a parent process's page table, create a copy
 // of it for a child.
 pde_t*
@@ -318,7 +352,6 @@ copyuvm(pde_t *pgdir, uint sz)
   pde_t *d;
   pte_t *pte;
   uint pa, i, flags;
-  char *mem;
 
   if((d = setupkvm()) == 0)
     return 0;
@@ -327,16 +360,17 @@ copyuvm(pde_t *pgdir, uint sz)
       panic("copyuvm: pte should exist");
     if(!(*pte & PTE_P))
       panic("copyuvm: page not present");
+    if(*pte & (PTE_W | PTE_COW)){
+      *pte &= ~PTE_W;
+      *pte |= PTE_COW;
+    }
     pa = PTE_ADDR(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    if(mappages(d, (void*)i, PGSIZE, pa, flags) < 0)
       goto bad;
-    memmove(mem, (char*)P2V(pa), PGSIZE);
-    if(mappages(d, (void*)i, PGSIZE, V2P(mem), flags) < 0) {
-      kfree(mem);
-      goto bad;
-    }
+    incref(pa);
   }
+  lcr3(V2P(pgdir));
   return d;
 
 bad:
@@ -371,6 +405,9 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
   buf = (char*)p;
   while(len > 0){
     va0 = (uint)PGROUNDDOWN(va);
+    pte_t *pte = walkpgdir(pgdir, (void*)va0, 0);
+    if(pte && (*pte & PTE_P) && (*pte & PTE_COW) && cow(pte) < 0)
+      return -1;
     pa0 = uva2ka(pgdir, (char*)va0);
     if(pa0 == 0)
       return -1;

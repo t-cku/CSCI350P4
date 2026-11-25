@@ -530,5 +530,13 @@ procdump(void)
         cprintf(" %p", pc[i]);
     }
     cprintf("\n");
+    if(p->pgdir == 0)
+      continue;
+    for(uint va = 0; va < p->sz; va += PGSIZE){
+      pte_t *pte = walkpgdir(p->pgdir, (void*)va, 0);
+      if(pte == 0 || !(*pte & PTE_P) || !(*pte & PTE_U))
+        continue;
+      cprintf("%d -> %d, %s\n", va >> 12, PTE_ADDR(*pte) >> 12, (*pte & PTE_W) ? "y" : "n");
+    }
   }
 }
