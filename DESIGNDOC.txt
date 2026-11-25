@@ -1,0 +1,61 @@
+Name: Tiffany Carmen Ku
+USC Email: tcku@usc.edu
+
+Overview
+
+Task 1 extened the process dump to print the user page mappings of 
+every process. Task 2 modifies fork() so that the parent and the child
+would share physical pages CoW. 
+In both processes, a shared page is mapped to be read-only, and they 
+are marked with PTE_COW. The number of processes sharing a page is tracked
+by a reference counter. If a process writes to a shared page, it would 
+raise a page fault, and then the page will be copied. 
+
+
+FILES MODIFIED 
+
+kalloc.c
+- added reference countre array
+- kalloc() sets the counter of the returned page to 1
+- kfree() decrements the counter
+- the page will be placed on the free list when counter reaches 0.
+- otherwise, kfree() will return without freeing
+- added incref(pa) which increments the counter
+- added get ref(pa) which reterns the counter
+
+mmu.h
+- added PTE_COW. This is a PTE bit which marks a page as a shared CoW.
+
+vm.c
+- changed walkpgdir() so that it is not static (therefore procdump can use)
+- copyuvm() was changed so it does not allocate and copy pages
+- added cow(), which is called when a process writes to a CoW page. If the 
+reference count is 1 it means it is writable. Otherwise it will allocate a 
+new page with kalloc(). It returns -1 if kalloc() failed.
+- pagefault() validates that the fault is a valid CoW fault, and if yes, it 
+calls cow(). Else it return -1 and kills the process.
+- copyout() calls cow() first, given that the destination page is a CoW page. 
+It writes with the kernel mapping. 
+
+trap.c
+- trap() firstly calls pagefault(rcr2()). When the fault is fixed, it returns 0. 
+
+defs.h
+- added prototypes for:
+- incref
+- getref
+- pagefault
+- walkpgdir
+
+proc.c
+- procdump() prints one line for every mapped user of every single process. 
+- print format is "virtual page number -> physical number, y / n". 
+- y/n represents if the page is writable or not
+
+sysproc.c, syscall.h, syscall.c, user.h, usys.S 
+- I added the procdump syscall, so the file testcow.c is able to call procdump() 
+
+Makefile
+- added _testcow
+- removed -Werror from CFLAGS 
+
